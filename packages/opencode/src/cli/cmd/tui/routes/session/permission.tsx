@@ -627,7 +627,7 @@ function Prompt<const T extends Record<string, string>>(props: {
   }))
 
   const hint = createMemo(() => (store.expanded ? "minimize" : "fullscreen"))
-  useRenderer()
+  const renderer = useRenderer()
 
   const content = () => (
     <box
@@ -682,7 +682,9 @@ function Prompt<const T extends Record<string, string>>(props: {
                 paddingRight={1}
                 backgroundColor={option === store.selected ? theme.warning : theme.backgroundMenu}
                 onMouseOver={() => setStore("selected", option)}
+                onMouseDown={() => setStore("selected", option)}
                 onMouseUp={() => {
+                  if (renderer.getSelection()?.getSelectedText()) return
                   setStore("selected", option)
                   props.onSelect(option)
                 }}
