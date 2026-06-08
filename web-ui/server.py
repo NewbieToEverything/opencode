@@ -222,7 +222,7 @@ def main():
             print("WARNING: no opencode serve found; open in browser will show connection error")
 
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    srv = http.server.HTTPServer(("0.0.0.0", WEB_PORT), Handler)
+    srv = http.server.HTTPServer(("127.0.0.1", WEB_PORT), Handler)
     print(f"Web UI:        http://localhost:{WEB_PORT}/")
     print("Press Ctrl+C to stop")
     try:
