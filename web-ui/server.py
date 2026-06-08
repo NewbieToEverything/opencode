@@ -28,6 +28,9 @@ import json
 import re
 import sys
 import os
+import secrets
+import time
+import base64
 
 WEB_PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
 OC_PORT = int(sys.argv[2]) if len(sys.argv) > 2 else None
@@ -127,15 +130,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     backend = None
     cwd = ""
     vcs = ""
+    _tokens = {}
+    _failures = {}
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
 
         if parsed.path == "/__backend":
-            self._json({"url": f"http://localhost:{self.backend}" if self.backend else None,
+            backend_url = f"http://localhost:{self.backend}" if self.backend else None
+            auth_required = False
+            if self.backend:
+                try:
+                    req = urllib.request.Request(f"http://127.0.0.1:{self.backend}/project")
+                    with urllib.request.urlopen(req, timeout=3) as resp:
+                        auth_required = False
+                except urllib.error.HTTPError as e:
+                    auth_required = e.code == 401
+                except Exception:
+                    pass
+            self._json({"url": backend_url,
                         "connected": self.backend is not None,
                         "cwd": self.cwd,
-                        "vcs": self.vcs})
+                        "vcs": self.vcs,
+                        "authRequired": auth_required})
 
         elif parsed.path.startswith(PROXY_PREFIXES):
             if not self.backend:
@@ -158,15 +175,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def _error(self, status, data):
         self._json(data, status)
 
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/__auth":
+            self._handle_auth()
+        else:
+            self._error(404, {"error": "not found"})
+
     SKIP_HEADERS = frozenset({"transfer-encoding", "connection", "date",
                               "www-authenticate", "vary"})
 
     def _proxy(self, path):
+        session = self.headers.get("X-Session-Token", "")
+        entry = self._tokens.get(session) if session else None
+        if not entry:
+            self._error(401, {"error": "authentication required"})
+            return
+
         url = f"http://127.0.0.1:{self.backend}{path}"
+        auth = "Basic " + base64.b64encode(f"opencode:{entry['password']}".encode()).decode()
         try:
             req = urllib.request.Request(url)
-            if "Authorization" in self.headers:
-                req.add_header("Authorization", self.headers["Authorization"])
+            req.add_header("Authorization", auth)
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = resp.read()
                 self.send_response(resp.status)
@@ -185,6 +215,52 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.send_header(key, val)
             self.end_headers()
             self.wfile.write(body)
+        except urllib.error.URLError:
+            self._error(502, {"error": "cannot connect to opencode server"})
+
+    def _handle_auth(self):
+        ip = self.client_address[0]
+        now = time.time()
+
+        fails = self._failures.get(ip, [])
+        fails = [t for t in fails if now - t < 3600]
+        if len(fails) >= 3:
+            wait = min(60 * 2 ** (len(fails) - 3), 3600)
+            remaining = max(1, int(wait - (now - fails[-1])))
+            self.send_response(429)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Retry-After", str(remaining))
+            self.end_headers()
+            self.wfile.write(json.dumps(
+                {"error": f"Too many attempts. Try again in {remaining}s", "retryAfter": remaining}).encode())
+            return
+
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length else b""
+        try:
+            data = json.loads(body) if body else {}
+        except json.JSONDecodeError:
+            self._error(400, {"error": "invalid json"})
+            return
+
+        password = data.get("password", "")
+        if not password:
+            self._error(400, {"error": "password required"})
+            return
+
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{self.backend}/project")
+            req.add_header("Authorization",
+                           "Basic " + base64.b64encode(f"opencode:{password}".encode()).decode())
+            with urllib.request.urlopen(req, timeout=10):
+                token = secrets.token_hex(32)
+                self._tokens[token] = {"password": password, "created": now}
+                self._failures.pop(ip, None)
+                self._json({"token": token})
+        except urllib.error.HTTPError:
+            fails.append(now)
+            self._failures[ip] = fails
+            self._error(401, {"error": "authentication failed"})
         except urllib.error.URLError:
             self._error(502, {"error": "cannot connect to opencode server"})
 
