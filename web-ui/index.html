@@ -143,6 +143,7 @@
   var currentToken = '';
   var cwd = '';
   var vcs = '';
+  var authRequired = false;
 
   var app = document.getElementById('app');
   var backendStatus = document.getElementById('backend-status');
@@ -205,6 +206,7 @@
         serverBase = data.url;
         cwd = data.cwd || '';
         vcs = data.vcs || '';
+        authRequired = !!data.authRequired;
         setStatus('connected to ' + serverBase, 'ok');
         return true;
       }
@@ -218,9 +220,7 @@
   }
 
   async function checkAuth() {
-    var res = await fetch('/__backend');
-    var data = await res.json();
-    if (!data.authRequired) return true;
+    if (!authRequired) return true;
     var saved = null;
     try { saved = localStorage.getItem(TOKEN_STORAGE_KEY); } catch (e) {}
     if (saved) {
@@ -257,23 +257,22 @@
     return false;
   }
 
+  async function api(path) {
+    var headers = {};
+    if (currentToken) headers['X-Session-Token'] = currentToken;
+    var res = await fetch(path, { headers: headers });
+    if (!res.ok) {
+      var msg = 'HTTP ' + res.status;
+      if (res.status === 401) msg = 'Authentication failed';
+      else { try { var body = await res.json(); if (body.error) msg = body.error; } catch (_) {} }
+      throw new Error(msg);
+    }
+    return res.json();
+  }
+
   async function loadData() {
     try {
       app.innerHTML = '<div class="loading">Loading sessions&#8230;</div>';
-
-      var headers = {};
-      if (currentToken) headers['X-Session-Token'] = currentToken;
-
-      async function api(path) {
-        var res = await fetch(path, { headers: headers });
-        if (!res.ok) {
-          var msg = 'HTTP ' + res.status;
-          if (res.status === 401) msg = 'Authentication failed';
-          else { try { var body = await res.json(); if (body.error) msg = body.error; } catch (_) {} }
-          throw new Error(msg);
-        }
-        return res.json();
-      }
 
       var [projects, sessions] = await Promise.all([
         api('/project'),

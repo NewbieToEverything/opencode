@@ -34,6 +34,7 @@ import base64
 
 WEB_PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
 OC_PORT = int(sys.argv[2]) if len(sys.argv) > 2 else None
+TOKEN_TTL = 86400  # 24 hours
 
 PROXY_PREFIXES = ("/project", "/experimental")
 
@@ -130,6 +131,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     backend = None
     cwd = ""
     vcs = ""
+    # class-level: shared across request instances (single-threaded HTTPServer)
     _tokens = {}
     _failures = {}
 
@@ -137,7 +139,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
 
         if parsed.path == "/__backend":
-            backend_url = f"http://localhost:{self.backend}" if self.backend else None
+            backend_url = f"http://127.0.0.1:{self.backend}" if self.backend else None
             auth_required = False
             if self.backend:
                 try:
@@ -171,6 +173,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+        self.wfile.flush()
 
     def _error(self, status, data):
         self._json(data, status)
@@ -192,6 +195,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._error(401, {"error": "authentication required"})
             return
 
+        if time.time() - entry["created"] > TOKEN_TTL:
+            self._tokens.pop(session, None)
+            self._error(401, {"error": "token expired"})
+            return
+
         url = f"http://127.0.0.1:{self.backend}{path}"
         auth = "Basic " + base64.b64encode(f"opencode:{entry['password']}".encode()).decode()
         try:
@@ -206,6 +214,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     self.send_header(key, val)
                 self.end_headers()
                 self.wfile.write(data)
+                self.wfile.flush()
         except urllib.error.HTTPError as e:
             body = e.read()
             self.send_response(e.code)
@@ -215,6 +224,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.send_header(key, val)
             self.end_headers()
             self.wfile.write(body)
+            self.wfile.flush()
         except urllib.error.URLError:
             self._error(502, {"error": "cannot connect to opencode server"})
 
@@ -233,9 +243,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(
                 {"error": f"Too many attempts. Try again in {remaining}s", "retryAfter": remaining}).encode())
+            self.wfile.flush()
             return
 
-        length = int(self.headers.get("Content-Length", 0))
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            length = 0
         body = self.rfile.read(length) if length else b""
         try:
             data = json.loads(body) if body else {}
