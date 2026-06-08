@@ -3,8 +3,17 @@
 
 Zero-dependency Python server. Auto-discovers a running `opencode serve`
 instance (port, PID, cwd), serves a self-contained HTML/JS session browser
-at the web port, and proxies REST API calls to the OpenCode backend — no
-CORS needed, auth forwarded transparently.
+at the web port, and proxies REST API calls to the OpenCode backend.
+
+Auth flow: browser POSTs password to /__auth → server validates via Basic
+Auth against backend → returns random 256-bit session token. Subsequent
+API calls carry X-Session-Token (never the raw password). Server-side IP
+rate limiting (3 strikes, exponential backoff) on /__auth.
+
+Endpoints:
+  /__backend   — {url, connected, cwd, vcs, authRequired}
+  /__auth      — POST {password} → {token}
+  /*           — proxied to opencode API (requires X-Session-Token)
 
 Usage:
     python3 server.py                       # web :8080, auto-detect
@@ -15,7 +24,7 @@ Requirements: Python 3.13+, Linux with /proc filesystem.
 
 Files:
   server.py    — This script.
-  index.html   — Self-contained SPA (~400 lines), served statically.
+  index.html   — Self-contained SPA (~440 lines), served statically.
                  Must be in the same directory as server.py.
 """
 import http.server
