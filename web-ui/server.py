@@ -158,8 +158,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def _error(self, status, data):
         self._json(data, status)
 
+    SKIP_HEADERS = frozenset({"transfer-encoding", "connection", "date",
+                              "www-authenticate", "vary"})
+
     def _proxy(self, path):
-        url = f"http://localhost:{self.backend}{path}"
+        url = f"http://127.0.0.1:{self.backend}{path}"
         try:
             req = urllib.request.Request(url)
             if "Authorization" in self.headers:
@@ -168,7 +171,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 data = resp.read()
                 self.send_response(resp.status)
                 for key, val in resp.headers.items():
-                    if key.lower() == "transfer-encoding":
+                    if key.lower() in self.SKIP_HEADERS:
                         continue
                     self.send_header(key, val)
                 self.end_headers()
@@ -177,7 +180,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             body = e.read()
             self.send_response(e.code)
             for key, val in e.headers.items():
-                if key.lower() == "transfer-encoding":
+                if key.lower() in self.SKIP_HEADERS:
                     continue
                 self.send_header(key, val)
             self.end_headers()
