@@ -143,6 +143,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     # class-level: shared across request instances (single-threaded HTTPServer)
     _tokens = {}
     _failures = {}
+    _backend_auth = None  # None=unknown, True=password required, False=open
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -159,6 +160,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     auth_required = e.code == 401
                 except Exception:
                     pass
+            Handler._backend_auth = auth_required
             self._json({"url": backend_url,
                         "connected": self.backend is not None,
                         "cwd": self.cwd,
@@ -198,22 +200,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                               "www-authenticate", "vary"})
 
     def _proxy(self, path):
-        session = self.headers.get("X-Session-Token", "")
-        entry = self._tokens.get(session) if session else None
-        if not entry:
-            self._error(401, {"error": "authentication required"})
-            return
+        if Handler._backend_auth:
+            session = self.headers.get("X-Session-Token", "")
+            entry = self._tokens.get(session) if session else None
+            if not entry:
+                self._error(401, {"error": "authentication required"})
+                return
 
-        if time.time() - entry["created"] > TOKEN_TTL:
-            self._tokens.pop(session, None)
-            self._error(401, {"error": "token expired"})
-            return
+            if time.time() - entry["created"] > TOKEN_TTL:
+                self._tokens.pop(session, None)
+                self._error(401, {"error": "token expired"})
+                return
+
+            password = entry['password']
+        else:
+            password = ""
 
         url = f"http://127.0.0.1:{self.backend}{path}"
-        auth = "Basic " + base64.b64encode(f"opencode:{entry['password']}".encode()).decode()
+        if password:
+            auth = "Basic " + base64.b64encode(f"opencode:{password}".encode()).decode()
         try:
             req = urllib.request.Request(url)
-            req.add_header("Authorization", auth)
+            if password:
+                req.add_header("Authorization", auth)
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = resp.read()
                 self.send_response(resp.status)
