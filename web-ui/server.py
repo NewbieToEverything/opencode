@@ -122,8 +122,6 @@ def _check_port(port):
         return False
 
 
-DEEP_LINK = os.environ.get("OCSERVER_URL", "")
-
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     backend = None

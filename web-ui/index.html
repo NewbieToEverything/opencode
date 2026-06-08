@@ -345,7 +345,7 @@
       if (!byProject[key]) byProject[key] = [];
       byProject[key].push(s);
 
-      if (cwd && s.directory && s.directory.indexOf(cwd) === 0) {
+      if (cwd && s.directory && (s.directory === cwd || s.directory.startsWith(cwd + "/"))) {
         cwdSessions.push(s);
         cwdSeen[s.id] = true;
       }
