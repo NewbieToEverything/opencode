@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCode Session List</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f5f5f5; color: #333; padding: 32px 16px;
+  }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 24px; color: #1a1a1a; margin-bottom: 4px; }
+  .subtitle { color: #999; margin-bottom: 16px; font-size: 13px; }
+  .btn {
+    padding: 8px 20px; border-radius: 6px; font-size: 14px; cursor: pointer;
+    border: none; white-space: nowrap;
+  }
+  .btn-primary { background: #1a73e8; color: #fff; }
+  .btn-primary:hover { background: #1557b0; }
+  .status {
+    font-size: 13px; padding: 4px 10px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;
+  }
+  .status-ok { background: #e6f7e6; color: #1a8a1a; }
+  .status-err { background: #fdecea; color: #d32f2f; }
+  .status-idle { background: #f0f0f0; color: #999; }
+
+  .loading { text-align: center; padding: 64px; color: #999; }
+  .error { text-align: center; padding: 64px; color: #d32f2f; }
+  .empty {
+    text-align: center; padding: 64px 16px; color: #999;
+    background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .empty p { margin-top: 8px; font-size: 14px; }
+
+  .project-card {
+    background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-bottom: 12px; overflow: hidden;
+  }
+  .project-header {
+    padding: 12px 16px; border-bottom: 1px solid #eee;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .project-header:hover { background: #fafafa; }
+  .project-header h2 { font-size: 15px; color: #1a1a1a; }
+  .project-header .vcs {
+    font-size: 11px; color: #888; background: #e8e8e8;
+    padding: 1px 6px; border-radius: 3px; font-weight: 600;
+  }
+  .project-header .worktree {
+    font-size: 12px; color: #999; font-family: monospace; margin-left: auto;
+  }
+  .project-header .count { font-size: 12px; color: #999; }
+
+  .session-list { padding: 0; }
+  .session-row {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 16px; border-bottom: 1px solid #f5f5f5;
+    text-decoration: none; color: inherit; cursor: pointer; transition: background 0.1s;
+  }
+  .session-row:last-child { border-bottom: none; }
+  .session-row:hover { background: #fafafa; }
+  .session-info { flex: 1; min-width: 0; }
+  .session-title {
+    font-size: 14px; font-weight: 500; color: #1a73e8; margin-bottom: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .session-meta {
+    font-size: 12px; color: #999; display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .tag {
+    display: inline-block; padding: 1px 5px; border-radius: 3px;
+    font-size: 11px; font-weight: 500;
+  }
+  .tag-model { background: #f3e8fd; color: #7c3aed; }
+  .tag-plan { background: #fef3cd; color: #856404; }
+  .tag-build { background: #cce5ff; color: #004085; }
+  .tag-agent { background: #e6f7e6; color: #1a8a1a; }
+  .tag-current {
+    background: #1a73e8; color: #fff; font-size: 10px; font-weight: 600;
+    padding: 2px 8px; border-radius: 10px; letter-spacing: 0.3px;
+  }
+  .project-card-current { border-left: 3px solid #1a73e8; }
+  .project-header-current { background: #f0f7ff; }
+  .project-header-current:hover { background: #e4f0fe; }
+  .project-header-current h2 { color: #1a73e8; }
+  .no-sessions { padding: 20px 16px; text-align: center; color: #bbb; font-size: 14px; }
+  .flash {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    padding: 10px 20px; border-radius: 6px; font-size: 14px;
+    z-index: 999; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+  .flash-error { background: #fdecea; color: #d32f2f; border: 1px solid #f5c6cb; }
+
+  .hidden { display: none !important; }
+
+  .auth-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.4); display: flex;
+    align-items: center; justify-content: center; z-index: 1000;
+  }
+  .auth-box {
+    background: #fff; border-radius: 12px; padding: 32px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.15); width: 360px; max-width: 90vw;
+    text-align: center;
+  }
+  .auth-box h2 { font-size: 20px; margin-bottom: 8px; }
+  .auth-box p { font-size: 14px; color: #666; margin-bottom: 16px; }
+  .auth-box input {
+    width: 100%; padding: 10px 12px; border: 1px solid #ddd;
+    border-radius: 6px; font-size: 14px; outline: none; margin-bottom: 12px; box-sizing: border-box;
+  }
+  .auth-box input:focus { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,0.15); }
+  .auth-box .btn { width: 100%; }
+  .auth-error { color: #d32f2f; font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>OpenCode Session List</h1>
+  <p class="subtitle" id="page-subtitle">
+    <span id="backend-status" class="status status-idle">discovering&#8230;</span>
+  </p>
+  <div id="app"></div>
+</div>
+
+<div id="auth-screen" class="auth-overlay hidden">
+  <div class="auth-box">
+    <h2>Authentication Required</h2>
+    <p id="auth-desc">This opencode server requires a password</p>
+    <input id="auth-password" type="password" placeholder="password">
+    <button class="btn btn-primary" id="auth-btn">Connect</button>
+    <p id="auth-error" class="auth-error hidden"></p>
+  </div>
+</div>
+
+<script>
+(function() {
+  var PW_STORAGE_KEY = 'ocsb_password';
+  var MAX_SESSIONS = 500;
+  var serverBase = '';
+  var currentPassword = '';
+  var cwd = '';
+  var vcs = '';
+
+  var app = document.getElementById('app');
+  var backendStatus = document.getElementById('backend-status');
+
+  var authScreen = document.getElementById('auth-screen');
+  var authPassword = document.getElementById('auth-password');
+  var authBtn = document.getElementById('auth-btn');
+  var authError = document.getElementById('auth-error');
+
+  function showAuth(msg) {
+    authError.textContent = msg || '';
+    authError.className = 'auth-error' + (msg ? '' : ' hidden');
+    authScreen.className = 'auth-overlay';
+    setTimeout(function() { authPassword.focus(); }, 100);
+  }
+
+  function hideAuth() {
+    authScreen.className = 'auth-overlay hidden';
+  }
+
+  function esc(s) {
+    if (typeof s !== 'string') s = String(s || '');
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  function b64url(v) {
+    var bytes = new TextEncoder().encode(v);
+    var bin = '';
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+  }
+
+  function fmtTime(ts) {
+    var d = new Date(ts);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString(undefined, {hour:'2-digit',minute:'2-digit'});
+  }
+
+  function flash(msg) {
+    var el = document.createElement('div');
+    el.className = 'flash flash-error';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(function() {
+      el.style.opacity = '0';
+      el.style.transition = 'opacity 0.5s';
+      setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 600);
+    }, 3000);
+  }
+
+  function setStatus(text, cls) {
+    backendStatus.className = 'status status-' + cls;
+    backendStatus.textContent = text;
+  }
+
+  async function discover() {
+    try {
+      var res = await fetch('/__backend');
+      var data = await res.json();
+      if (data.connected && data.url) {
+        serverBase = data.url;
+        cwd = data.cwd || '';
+        vcs = data.vcs || '';
+        setStatus('connected to ' + serverBase, 'ok');
+        return true;
+      }
+      setStatus('no opencode serve found', 'err');
+      return false;
+    } catch (e) {
+      serverBase = '';
+      setStatus('connection error', 'err');
+      return false;
+    }
+  }
+
+  async function checkAuth() {
+    var res = await fetch('/project');
+    if (res.ok) return true;
+    if (res.status !== 401) return true;
+    var saved = null;
+    try { saved = localStorage.getItem(PW_STORAGE_KEY); } catch (e) {}
+    if (saved) {
+      var res2 = await fetch('/project', { headers: { 'Authorization': 'Basic ' + btoa('opencode:' + saved) } });
+      if (res2.ok) {
+        currentPassword = saved;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async function login(password) {
+    var res = await fetch('/project', { headers: { 'Authorization': 'Basic ' + btoa('opencode:' + password) } });
+    if (res.ok) {
+      currentPassword = password;
+      try { localStorage.setItem(PW_STORAGE_KEY, password); } catch (e) {}
+      hideAuth();
+      loadData();
+      return true;
+    }
+    showAuth('Authentication failed \u2014 check password');
+    return false;
+  }
+
+  async function loadData() {
+    try {
+      app.innerHTML = '<div class="loading">Loading sessions&#8230;</div>';
+
+      var headers = {};
+      if (currentPassword) headers['Authorization'] = 'Basic ' + btoa('opencode:' + currentPassword);
+
+      async function api(path) {
+        var res = await fetch(path, { headers: headers });
+        if (!res.ok) {
+          var msg = 'HTTP ' + res.status;
+          if (res.status === 401) msg = 'Authentication failed \u2014 check password';
+          else { try { var body = await res.json(); if (body.error) msg = body.error; } catch (_) {} }
+          throw new Error(msg);
+        }
+        return res.json();
+      }
+
+      var [projects, sessions] = await Promise.all([
+        api('/project'),
+        api('/experimental/session?roots=true&limit=' + MAX_SESSIONS),
+      ]);
+
+      render(projects || [], sessions || []);
+    } catch (e) {
+      flash(e.message);
+      app.innerHTML = '<div class="error">' + esc(e.message) + '</div>';
+    }
+  }
+
+  function render(projects, sessions) {
+    if (projects.length === 0 && sessions.length === 0) {
+      app.innerHTML = '<div class="empty"><div style="font-size:48px">&#x1F4C2;</div><p>No projects or sessions found</p><p style="color:#bbb;font-size:13px;margin-top:4px">Create a session in TUI or web UI first.</p></div>';
+      return;
+    }
+
+    var base = serverBase.replace(/\/+$/, '');
+    var html = '';
+
+    function sessionRows(group) {
+      var rows = '';
+      for (var j = 0; j < group.length; j++) {
+        var s = group[j];
+        var title = s.title || (s.id ? s.id.slice(0,12) + '...' : '(no title)');
+        var dir = s.directory || '';
+        var openUrl = base ? base + '/' + b64url(dir) + '/session/' + s.id : '';
+        var created = s.time ? fmtTime(s.time.created || s.time.updated) : '';
+        var modelTag = s.model ? '<span class="tag tag-model">' + esc(s.model.id || s.model.provider || 'model') + '</span>' : '';
+        var agentCls = s.agent === 'plan' ? 'tag-plan' : s.agent === 'build' ? 'tag-build' : 'tag-agent';
+        var agentTag = s.agent ? '<span class="tag ' + agentCls + '">' + esc(s.agent) + '</span>' : '';
+
+        rows += '<div class="session-row"' + (openUrl ? ' onclick="if(window.getSelection().isCollapsed)window.open(\'' + esc(openUrl) + '\', \'_blank\')"' : '') + '>'
+          + '<div class="session-info">'
+          + '<div class="session-title">' + esc(title) + '</div>'
+          + '<div class="session-meta">'
+          + '<span>&#128197; ' + created + '</span>'
+          + (modelTag ? '<span>' + modelTag + '</span>' : '')
+          + (agentTag ? '<span>' + agentTag + '</span>' : '')
+          + '</div>'
+          + '</div>'
+          + '</div>';
+      }
+      return rows;
+    }
+
+    function card(project, group, extraCls) {
+      var name = project.name || (project.worktree || '').split('/').pop() || project.id;
+      var vcsTag = project.vcs ? '<span class="vcs">' + esc(project.vcs) + '</span>' : '';
+      var pid = esc(project.id);
+      extraCls = extraCls || '';
+      var collapsed = localStorage.getItem('ocsb_hide_' + pid) === '1';
+      var rows = group.length === 0
+        ? '<div class="no-sessions">No sessions</div>'
+        : sessionRows(group);
+
+      return '<div class="project-card ' + extraCls + '">'
+        + '<div class="project-header' + (extraCls ? ' project-header-' + extraCls.replace('project-card-','') : '') + '">'
+        + '<span style="font-size:12px;color:#999;width:14px;cursor:pointer" onclick="toggleProject(\'' + pid + '\')">' + (collapsed ? '&#9654;' : '&#9660;') + '</span>'
+        + '<h2>' + esc(name) + '</h2> ' + vcsTag
+        + '<span class="worktree">' + esc(project.worktree) + '</span>'
+        + '<span class="count">' + group.length + '</span>'
+        + '</div>'
+        + '<div class="session-list" id="ocsb_list_' + pid + '" style="display:' + (collapsed ? 'none' : '') + '">'
+        + rows
+        + '</div>'
+        + '</div>';
+    }
+
+    var byProject = {};
+    var cwdSessions = [];
+    var cwdSeen = {};
+
+    for (var i = 0; i < sessions.length; i++) {
+      var s = sessions[i];
+      if ((s.title || '').startsWith('System ')) continue;
+      var key = s.projectID || s.directory || '__unknown';
+      if (!byProject[key]) byProject[key] = [];
+      byProject[key].push(s);
+
+      if (cwd && s.directory && s.directory.indexOf(cwd) === 0) {
+        cwdSessions.push(s);
+        cwdSeen[s.id] = true;
+      }
+    }
+
+    if (cwd && cwdSessions.length > 0) {
+      var cwdName = cwd.split('/').pop() || cwd;
+      var folderId = esc('__cwd_' + cwd);
+      var collapsed = localStorage.getItem('ocsb_hide_' + folderId) === '1';
+      var cwdVcsTag = vcs ? '<span class="vcs">' + esc(vcs) + '</span>' : '';
+      html += '<div class="project-card project-card-current">'
+        + '<div class="project-header project-header-current">'
+        + '<span style="font-size:12px;color:#999;width:14px;cursor:pointer" onclick="toggleProject(\'' + folderId + '\')">' + (collapsed ? '&#9654;' : '&#9660;') + '</span>'
+        + '<h2>' + esc(cwdName) + '</h2> ' + cwdVcsTag
+        + ' <span class="tag tag-current">current</span>'
+        + '<span class="worktree">' + esc(cwd) + '</span>'
+        + '<span class="count">' + cwdSessions.length + '</span>'
+        + '</div>'
+        + '<div class="session-list" id="ocsb_list_' + folderId + '" style="display:' + (collapsed ? 'none' : '') + '">'
+        + sessionRows(cwdSessions)
+        + '</div>'
+        + '</div>';
+    }
+
+    for (var i = 0; i < projects.length; i++) {
+      var p = projects[i];
+      var group = (byProject[p.id] || []).filter(function(s) { return !cwdSeen[s.id]; });
+      if (group.length > 0) {
+        html += card(p, group, '');
+      }
+      delete byProject[p.id];
+    }
+
+    var keys = Object.keys(byProject);
+    for (var i = 0; i < keys.length; i++) {
+      var group = byProject[keys[i]].filter(function(s) { return !cwdSeen[s.id]; });
+      if (group.length === 0) continue;
+      html += card({ id: keys[i], worktree: group[0].directory || keys[i], name: '(unknown)', vcs: null }, group, '');
+    }
+    app.innerHTML = html;
+  }
+
+  window.toggleProject = function(id) {
+    var list = document.getElementById('ocsb_list_' + id);
+    if (!list) return;
+    var header = list.parentNode.firstElementChild;
+    if (!header) return;
+    var arrow = header.firstElementChild;
+    var key = 'ocsb_hide_' + id;
+    if (list.style.display === 'none') {
+      list.style.display = '';
+      localStorage.removeItem(key);
+      if (arrow) arrow.innerHTML = '&#9660;';
+    } else {
+      list.style.display = 'none';
+      localStorage.setItem(key, '1');
+      if (arrow) arrow.innerHTML = '&#9654;';
+    }
+  };
+
+  authPassword.addEventListener('keydown', function(e) { if (e.key === 'Enter') { authBtn.click(); } });
+  authBtn.addEventListener('click', function() { login(authPassword.value.trim()); });
+
+  (async function init() {
+    if (await discover()) {
+      if (await checkAuth()) {
+        loadData();
+      } else {
+        showAuth();
+      }
+    }
+  })();
+})();
+</script>
+</body>
+</html>
