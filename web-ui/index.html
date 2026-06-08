@@ -143,6 +143,44 @@
   var currentPassword = '';
   var cwd = '';
   var vcs = '';
+  var LOCK_KEY = 'ocsb_lock';
+  var lockTimer = null;
+
+  function readLock() {
+    try {
+      var data = JSON.parse(localStorage.getItem(LOCK_KEY));
+      if (data && typeof data.count === 'number') {
+        if (data.until <= Date.now()) data.until = 0;
+        return data;
+      }
+    } catch (_) {}
+    return { count: 0, until: 0 };
+  }
+
+  function writeLock(count, until) {
+    try { localStorage.setItem(LOCK_KEY, JSON.stringify({ count: count, until: until })); } catch (_) {}
+  }
+
+  function showLock(until) {
+    if (lockTimer) { clearInterval(lockTimer); lockTimer = null; }
+    authPassword.disabled = true;
+    authBtn.disabled = true;
+    function tick() {
+      var remaining = Math.ceil((until - Date.now()) / 1000);
+      if (remaining <= 0) {
+        clearInterval(lockTimer);
+        lockTimer = null;
+        authPassword.disabled = false;
+        authBtn.disabled = false;
+        showAuth();
+        return;
+      }
+      authError.textContent = 'Too many attempts. Try again in ' + remaining + 's';
+      authError.className = 'auth-error';
+    }
+    tick();
+    lockTimer = setInterval(tick, 1000);
+  }
 
   var app = document.getElementById('app');
   var backendStatus = document.getElementById('backend-status');
@@ -234,15 +272,29 @@
   }
 
   async function login(password) {
+    var lock = readLock();
+    if (lock.until > Date.now()) {
+      showLock(lock.until);
+      return false;
+    }
     var res = await fetch('/project', { headers: { 'Authorization': 'Basic ' + btoa('opencode:' + password) } });
     if (res.ok) {
       currentPassword = password;
       try { localStorage.setItem(PW_STORAGE_KEY, password); } catch (e) {}
+      writeLock(0, 0);
+      if (lockTimer) { clearInterval(lockTimer); lockTimer = null; }
       hideAuth();
       loadData();
       return true;
     }
+    lock.count++;
+    if (lock.count >= 3) {
+      var wait = Math.min(60 * Math.pow(2, lock.count - 3), 3600);
+      lock.until = Date.now() + wait * 1000;
+    }
+    writeLock(lock.count, lock.until);
     showAuth('Authentication failed \u2014 check password');
+    if (lock.until > Date.now()) showLock(lock.until);
     return false;
   }
 
@@ -415,6 +467,8 @@
         loadData();
       } else {
         showAuth();
+        var lock = readLock();
+        if (lock.until > Date.now()) showLock(lock.until);
       }
     }
   })();
