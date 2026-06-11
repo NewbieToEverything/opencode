@@ -355,7 +355,6 @@
 
     for (var i = 0; i < sessions.length; i++) {
       var s = sessions[i];
-      if ((s.title || '').startsWith('System ')) continue;
       var key = s.projectID || s.directory || '__unknown';
       if (!byProject[key]) byProject[key] = [];
       byProject[key].push(s);
